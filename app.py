@@ -26,7 +26,40 @@ app = Flask(__name__)
 
 @app.route('/api/insertdata', methods=['POST'])
 def insert_data():
-    return jsonify({'Success': 'Insert data reached!'}), 200
+    try:
+        # Check if request is in JSON format
+        if not request.is_json:
+            return jsonify({"error": "Invalid input: Expected JSON"}), 400
+
+        # Get the JSON data sent by Unity
+        data = request.get_json()
+
+        # Example data extraction (adjust fields as per your use case)
+        test = data.get('test')
+
+        if not test:
+            return jsonify({"error": "Missing data in the request"}), 400
+
+        # Insert data into the database
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        # Assuming you have a table called 'your_table' with columns 'column1' and 'column2'
+        insert_query = "INSERT INTO test (test) VALUES (%s)"
+        cur.execute(insert_query, (test,))
+
+        # Commit the transaction
+        conn.commit()
+
+        # Close the connection
+        cur.close()
+        conn.close()
+
+        # Return success response
+        return jsonify({"message": "Data inserted successfully"}), 201
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/api/getdata', methods=['GET'])
 def get_data():
