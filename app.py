@@ -1,6 +1,7 @@
 import os
 
 from flask import Flask, request, jsonify
+from flask_cors import CORS, cross_origin
 import psycopg2
 from psycopg2 import sql
 from dotenv import load_dotenv
@@ -23,8 +24,11 @@ def get_db_connection():
     return conn
 
 app = Flask(__name__)
+cors = CORS(app)
+app.config['CORS_HEADERS'] = 'Content-Type'
 
 @app.route('/api/insertdata', methods=['POST'])
+@cross_origin()
 def insert_data():
     try:
         # Check if request is in JSON format
