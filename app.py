@@ -1,7 +1,7 @@
 import os
 from flask import Flask, request, jsonify
 from flask_cors import CORS, cross_origin
-import psycopg2
+import pymysql
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -12,12 +12,12 @@ DB_PASS = os.getenv("DB_PASS")
 DB_PORT = os.getenv("DB_PORT")
 
 def get_db_connection():
-    conn = psycopg2.connect(
+    conn = pymysql.connect(
         host=DB_HOST,
-        database=DB_NAME,
         user=DB_USER,
         password=DB_PASS,
-        port=DB_PORT
+        database=DB_NAME,
+        port=int(DB_PORT)
     )
     return conn
 
@@ -29,29 +29,24 @@ def checkIfUserExists(username, email):
     conn = get_db_connection()
     cur = conn.cursor()
 
-    # Assuming you have a table called 'your_table' with columns 'column1' and 'column2'
-    select_query = f"SELECT count(*) from digitmile_users where username = '{username}' and email = '{email}'"
-    cur.execute(select_query)
+    # Use parameterized query to avoid SQL injection
+    select_query = "SELECT COUNT(*) FROM digitmile_users WHERE username = %s AND email = %s"
+    cur.execute(select_query, (username, email))
     result = cur.fetchone()
     cur.close()
     conn.close()
-    if result[0] > 0:
-        return True
-    return False
+    return result[0] > 0
 
 def checkIfPasswordValid(username, email, password):
     conn = get_db_connection()
     cur = conn.cursor()
 
-    # Assuming you have a table called 'your_table' with columns 'column1' and 'column2'
-    select_query = f"SELECT count(*) from digitmile_users where username = '{username}' and email = '{email}' and user_password = '{password}'"
-    cur.execute(select_query)
+    select_query = "SELECT COUNT(*) FROM digitmile_users WHERE username = %s AND email = %s AND user_password = %s"
+    cur.execute(select_query, (username, email, password))
     result = cur.fetchone()
     cur.close()
     conn.close()
-    if result[0] > 0:
-        return True
-    return False
+    return result[0] > 0
 
 @app.route('/api/checkUserLogin', methods=['POST'])
 @cross_origin()
@@ -59,13 +54,11 @@ def checkUserLogin():
     if not request.is_json:
         return jsonify({"error": "Invalid input: Expected JSON"}), 400
 
-    # Get the JSON data sent by Unity
     data = request.get_json()
+    user_exists = checkIfUserExists(data['user'], data['email'])
+    password_valid = checkIfPasswordValid(data['user'], data['email'], data['password'])
 
-    check = checkIfUserExists(data['user'], data['email'])
-    passwordValid = checkIfPasswordValid(data['user'], data['email'], data['password'])
-
-    if check and passwordValid:
+    if user_exists and password_valid:
         return jsonify({"message": "User login verified successfully"}), 201
     else:
         return jsonify({"message": "User login verification failed"}), 401
@@ -76,65 +69,64 @@ def registerUser():
     if not request.is_json:
         return jsonify({"error": "Invalid input: Expected JSON"}), 400
 
-    # Get the JSON data sent by Unity
     data = request.get_json()
-    print(data)
     username = data['user']
     email = data['email']
     password = data['password']
 
-    check = checkIfUserExists(username, email)
-
-    if check:
+    print("Checking if user exists...")
+    if checkIfUserExists(username, email):
+        print("Exists")
         return jsonify({"message": "User already exists"}), 401
     else:
+        print("Doesn't exist")
         insert_query = "INSERT INTO digitmile_users (username, email, user_password) VALUES (%s, %s, %s)"
         conn = get_db_connection()
         cur = conn.cursor()
-
-        # Assuming you have a table called 'your_table' with columns 'column1' and 'column2'
-        cur.execute(insert_query, (username,email,password))
-
-        # Commit the transaction
+        cur.execute(insert_query, (username, email, password))
         conn.commit()
-
-        # Close the connection
         cur.close()
         conn.close()
         return jsonify({"message": "User successfully registered"}), 201
-
 
 @app.route('/api/insertLevelStatistics', methods=['POST'])
 @cross_origin()
 def insert_data():
     try:
-        # Check if request is in JSON format
         if not request.is_json:
             return jsonify({"error": "Invalid input: Expected JSON"}), 400
+
+        data = request.get_json()
+        levelstatistics = data['levelStatistics']
 
         conn = get_db_connection()
         cur = conn.cursor()
 
-        # Get the JSON data sent by Unity
-        data = request.get_json()
-        print(data)
-        levelstatistics = data['levelStatistics']
+        # Retrieve user id safely
+        select_query = "SELECT id FROM digitmile_users WHERE username = %s"
+        cur.execute(select_query, (data['user'],))
+        user_row = cur.fetchone()
+        if not user_row:
+            return jsonify({"error": "User not found"}), 404
+        user_id = user_row[0]
 
-
-        select_query = f"SELECT id FROM digitmile_users WHERE username = '{data['user']}';"
-        cur.execute(select_query)
-        user_id = cur.fetchone()
-        insert_query = f"INSERT INTO userlevelstatistics (level_user, level_number, score, place, correctMoves, wrongMoves, timeElapsed) VALUES (%s, %s, %s, %s, %s, %s, %s);"
-        cur.execute(insert_query, (user_id, levelstatistics.get('level'), levelstatistics.get('score'), levelstatistics.get('place'), levelstatistics.get('correctMoves'), levelstatistics.get('wrongMoves'), levelstatistics.get('timeElapsed')))
-
-        # Commit the transaction
+        insert_query = """
+            INSERT INTO userlevelstatistics 
+            (level_user, level_number, score, place, correctMoves, wrongMoves, timeElapsed) 
+            VALUES (%s, %s, %s, %s, %s, %s, %s);
+        """
+        cur.execute(insert_query, (
+            user_id,
+            levelstatistics.get('level'),
+            levelstatistics.get('score'),
+            levelstatistics.get('place'),
+            levelstatistics.get('correctMoves'),
+            levelstatistics.get('wrongMoves'),
+            levelstatistics.get('timeElapsed')
+        ))
         conn.commit()
-
-        # Close the connection
         cur.close()
         conn.close()
-
-        # Return success response
         return jsonify({"message": "Data inserted successfully"}), 201
 
     except Exception as e:
@@ -143,5 +135,3 @@ def insert_data():
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)
-
-
