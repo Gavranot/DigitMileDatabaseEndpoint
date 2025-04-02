@@ -1,7 +1,7 @@
 import os
 from flask import Flask, request, jsonify
 from flask_cors import CORS, cross_origin
-import pymysql
+import psycopg2
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -12,23 +12,22 @@ DB_PASS = os.getenv("DB_PASS")
 DB_PORT = os.getenv("DB_PORT")
 
 def get_db_connection():
-    conn = pymysql.connect(
+    conn = psycopg2.connect(
         host=DB_HOST,
+        dbname=DB_NAME,
         user=DB_USER,
         password=DB_PASS,
-        database=DB_NAME,
         port=int(DB_PORT)
     )
     return conn
 
 app = Flask(__name__)
-cors = CORS(app)
+CORS(app)
 app.config['CORS_HEADERS'] = 'Content-Type'
 
 def checkIfUserExists(username, email):
     conn = get_db_connection()
     cur = conn.cursor()
-
     # Use parameterized query to avoid SQL injection
     select_query = "SELECT COUNT(*) FROM digitmile_users WHERE username = %s AND email = %s"
     cur.execute(select_query, (username, email))
@@ -40,7 +39,6 @@ def checkIfUserExists(username, email):
 def checkIfPasswordValid(username, email, password):
     conn = get_db_connection()
     cur = conn.cursor()
-
     select_query = "SELECT COUNT(*) FROM digitmile_users WHERE username = %s AND email = %s AND user_password = %s"
     cur.execute(select_query, (username, email, password))
     result = cur.fetchone()
