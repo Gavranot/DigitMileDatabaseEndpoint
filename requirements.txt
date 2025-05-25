@@ -1,5 +1,4 @@
-Flask
+django
+djangorestframework
 python-dotenv
 psycopg2-binary
-flask-cors
-PyMySQL
