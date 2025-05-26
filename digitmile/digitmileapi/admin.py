@@ -53,7 +53,7 @@ class TeacherAdmin(admin.ModelAdmin):
 
 @admin.register(Classroom)
 class ClassroomAdmin(admin.ModelAdmin):
-    list_display = ('classroom_key', 'teacher')
+    list_display = ('classroom_key', 'classroom_name', 'teacher')
     search_fields = ('classroom_key', 'teacher__full_name', 'teacher__user__username')
     list_filter = ('teacher',) # This will be useful for superusers
 

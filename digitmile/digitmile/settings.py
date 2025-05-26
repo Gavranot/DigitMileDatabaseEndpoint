@@ -78,11 +78,11 @@ WSGI_APPLICATION = 'digitmile.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
-print(os.getenv('DB_NAME'))
-print(os.getenv('DB_USER'))
-print(os.getenv('DB_PASS'))
-print(os.getenv('DB_HOST'))
-print(os.getenv('DB_PORT'))
+# print(os.getenv('DB_NAME'))
+# print(os.getenv('DB_USER'))
+# print(os.getenv('DB_PASS'))
+# print(os.getenv('DB_HOST'))
+# print(os.getenv('DB_PORT'))
 # PASTE THIS ENTIRE BLOCK:
 db_port_env = os.getenv('DB_PORT')
 processed_db_port = ''  # Default to empty string, telling Django not to specify a port to psycopg2
