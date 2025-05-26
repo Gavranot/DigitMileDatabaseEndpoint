@@ -79,18 +79,34 @@ WSGI_APPLICATION = 'digitmile.wsgi.application'
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
 print(os.getenv('DB_NAME'))
+print(os.getenv('DB_USER'))
+print(os.getenv('DB_PASS'))
+print(os.getenv('DB_HOST'))
+print(os.getenv('DB_PORT'))
+# PASTE THIS ENTIRE BLOCK:
+db_port_env = os.getenv('DB_PORT')
+processed_db_port = ''  # Default to empty string, telling Django not to specify a port to psycopg2
+
+if db_port_env and db_port_env.strip().isdigit():
+    # If DB_PORT is set and is a number, use it as an integer
+    processed_db_port = int(db_port_env.strip())
+elif not db_port_env:
+    # If DB_PORT is not set in .env at all, default to 5432 (integer)
+    processed_db_port = 5432
+# If DB_PORT is set but is not a simple number (e.g., an empty string from .env, or non-numeric),
+# processed_db_port remains '', which is fine for Django's database wrapper.
 
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.postgresql', # Specifies the database backend
-        'NAME': os.getenv('DB_NAME'),             # Your database name
-        'USER': os.getenv('DB_USER'),             # Your PostgreSQL username
-        'PASSWORD': os.getenv('DB_PASS'),         # Your PostgreSQL password
-        'HOST': os.getenv('DB_HOST'),             # e.g., 'localhost' or an IP address
-        'PORT': os.getenv('DB_PORT', '5432'),     # Default PostgreSQL port is 5432.
-                                                  # os.getenv can take a default value if the env var isn't set.
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': os.getenv('DB_NAME'),
+        'USER': os.getenv('DB_USER'),
+        'PASSWORD': os.getenv('DB_PASS'),
+        'HOST': os.getenv('DB_HOST'),
+        'PORT': processed_db_port, # Use the explicitly processed port
     }
 }
+# END OF BLOCK TO PASTE
 
 # Password validation
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators

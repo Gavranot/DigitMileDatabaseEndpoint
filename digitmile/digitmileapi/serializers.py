@@ -46,3 +46,38 @@ class RunStatisticsSerializer(serializers.ModelSerializer):
         # otherwise, for just a success message, this might not be strictly needed for the response
         fields = ['id', 'student', 'player_won']
         read_only_fields = ['id']
+class ClassroomBasicSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Classroom
+        fields = ['id', 'classroom_key']
+
+class TeacherStudentManagementSerializer(serializers.ModelSerializer):
+    # Display classroom details in a nested way for reads
+    classroom = ClassroomBasicSerializer(read_only=True) 
+    # Allow setting classroom by ID for writes (create/update)
+    classroom_id = serializers.PrimaryKeyRelatedField(
+        queryset=Classroom.objects.all(), source='classroom', write_only=True
+    )
+
+    class Meta:
+        model = Student
+        fields = ['id', 'full_name', 'classroom', 'classroom_id']
+        read_only_fields = ['id']
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Dynamically filter classroom_id queryset if a teacher is provided in context
+        # This is crucial for ensuring teachers can only assign students to their own classrooms.
+        request = self.context.get('request', None)
+        if request and hasattr(request.user, 'teacher_profile'):
+            teacher = request.user.teacher_profile
+            self.fields['classroom_id'].queryset = Classroom.objects.filter(teacher=teacher)
+        elif request and request.method in ['POST', 'PUT', 'PATCH'] and not (request.user.is_staff or request.user.is_superuser):
+            # If it's a write operation by a non-staff user without a teacher_profile,
+            # they shouldn't be able to set any classroom.
+            # This scenario should ideally be caught by permissions in the view.
+            self.fields['classroom_id'].queryset = Classroom.objects.none()
+
+
+# Make sure this is below the new serializers if they are referenced by existing ones.
+# For now, placing it at the end of the new additions.
