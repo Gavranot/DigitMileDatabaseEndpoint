@@ -1,0 +1,54 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+<h2>Pending School Registrations</h2>
+<table>
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Municipality</th>
+            <th>Region</th>
+            <th>Contact Name</th>
+            <th>Contact Email</th>
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for school in unregistered_schools %}
+        <tr>
+            <td>{{ school.name }}</td>
+            <td>{{ school.municipality }}</td>
+            <td>{{ school.region }}</td>
+            <td>{{ school.contact_person_name }}</td>
+            <td>{{ school.contact_person_email }}</td>
+            <td>
+                <a href="{% url 'admin:digitmileapi_unregisteredschool_change' school.id %}">Review</a>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<h2>Pending Teacher Registrations</h2>
+<table>
+    <thead>
+        <tr>
+            <th>Full Name</th>
+            <th>Email</th>
+            <th>School</th>
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for teacher in unregistered_teachers %}
+        <tr>
+            <td>{{ teacher.full_name }}</td>
+            <td>{{ teacher.email }}</td>
+            <td>{{ teacher.school }}</td>
+            <td>
+                <a href="{% url 'admin:digitmileapi_unregisteredteacher_change' teacher.id %}">Review</a>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endblock %}

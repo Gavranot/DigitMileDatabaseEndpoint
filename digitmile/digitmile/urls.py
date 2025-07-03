@@ -17,8 +17,13 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path
 from django.urls import path, include # Make sure include is imported
+from digitmileapi import views as api_views
 
 urlpatterns = [
+    path('', api_views.home_view, name='home'),
     path('admin/', admin.site.urls),
     path('api/', include('digitmileapi.urls')),  # This line tells Django to look at myapi.urls for paths starting with 'api/'
+    path('register/school/', api_views.register_school_view, name='register_school'),
+    path('register/teacher/', api_views.register_teacher_view, name='register_teacher'),
+    path('registration-success/', api_views.registration_success, name='registration_success'),
 ]

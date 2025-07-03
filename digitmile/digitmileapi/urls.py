@@ -4,7 +4,7 @@ from rest_framework.routers import DefaultRouter
 from .views import (
     CheckClassroomKeyView,
     InsertLevelStatisticsView,
-    teacher_registration_view,
+    pending_registrations_view,
     TeacherStudentViewSet,
     TeacherClassroomListView,
     TeacherSchoolView,
@@ -21,7 +21,7 @@ urlpatterns = [
     # Manually defined paths
     path('checkClassroomKey/', CheckClassroomKeyView.as_view(), name='check_classroom_key'),
     path('insertLevelStatistics/', InsertLevelStatisticsView.as_view(), name='insert_level_statistics'),
-    path('register/teacher/', teacher_registration_view, name='teacher_register'),
+    path('pending-registrations/', pending_registrations_view, name='pending_registrations'),
     path('teacher/classrooms/', TeacherClassroomListView.as_view(), name='teacher-classrooms-list'),
     path('teacher/school/', TeacherSchoolView.as_view(), name='teacher-school-detail'),
     path('teacher/run-statistics/', TeacherRunStatisticsListView.as_view(), name='teacher-run-statistics-list'), # New URL for teacher's run statistics

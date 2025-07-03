@@ -14,7 +14,8 @@ from pathlib import Path
 
 from django.conf.global_settings import APPEND_SLASH
 from dotenv import load_dotenv
-load_dotenv() # This will load variables from a .env file in your project root
+# Load .env file from the 'digitmile' directory, which is the parent of the current directory
+load_dotenv(dotenv_path=Path(__file__).resolve().parent.parent / '.env')
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -50,6 +51,7 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
+    'corsheaders.middleware.CorsMiddleware', # Add this here
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
@@ -150,3 +152,5 @@ STATIC_URL = 'static/'
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+LOGIN_URL = '/admin/login/'

@@ -8,11 +8,11 @@ from .serializers import TeacherStudentManagementSerializer # Add this new seria
 from django.shortcuts import render, redirect
 from django.contrib import messages
 from django.urls import reverse_lazy
-from .forms import TeacherRegistrationForm
+from .forms import UnregisteredSchoolForm, UnregisteredTeacherForm
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
-from .models import Classroom, Student, Teacher, School, RunStatistics
+from .models import Classroom, Student, Teacher, School, RunStatistics, UnregisteredSchool, UnregisteredTeacher
 from .serializers import (
     CheckClassroomResponseSerializer,
     LevelStatisticsInputSerializer,
@@ -104,24 +104,35 @@ class InsertLevelStatisticsView(APIView):
             import traceback
             traceback.print_exc()
             return Response({"error": "Internal server error while saving statistics"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-def teacher_registration_view(request):
+        
+import os
+
+def register_school_view(request):
     if request.method == 'POST':
-        form = TeacherRegistrationForm(request.POST)
+        form = UnregisteredSchoolForm(request.POST)
         if form.is_valid():
-            user, teacher_profile = form.save()
-            messages.success(request, f'Account created for {user.username}! You can now log in.')
-            # Redirect to login page or a dashboard.
-            # For now, redirecting to Django admin login.
-            # You might want to change this to a custom login page later.
-            return redirect(reverse_lazy('admin:index')) 
-        else:
-            # Form is not valid, add a generic error message for now
-            # Specific field errors will be displayed by the form in the template
-            messages.error(request, 'Please correct the errors below.')
+            form.save()
+            messages.success(request, 'School registration submitted for approval.')
+            return redirect('registration_success')  # Redirect to a success page
     else:
-        form = TeacherRegistrationForm()
+        form = UnregisteredSchoolForm()
     
-    return render(request, 'digitmileapi/teacher_registration.html', {'form': form})
+    context = {
+        'form': form,
+        'google_maps_api_key': os.getenv('GOOGLE_MAPS_API_KEY')
+    }
+    return render(request, 'digitmileapi/register_school.html', context)
+
+def register_teacher_view(request):
+    if request.method == 'POST':
+        form = UnregisteredTeacherForm(request.POST)
+        if form.is_valid():
+            form.save()
+            messages.success(request, 'Teacher registration submitted for approval.')
+            return redirect('registration_success')  # Redirect to a success page
+    else:
+        form = UnregisteredTeacherForm()
+    return render(request, 'digitmileapi/register_teacher.html', {'form': form})
 class IsTeacher(permissions.BasePermission):
     """
     Custom permission to only allow users in the 'Teachers' group
@@ -225,3 +236,18 @@ class TeacherRunStatisticsListView(generics.ListAPIView):
         teacher = self.request.user.teacher_profile
         # Filter RunStatistics where the student's classroom's teacher is the current teacher
         return RunStatistics.objects.filter(student__classroom__teacher=teacher)
+def registration_success(request):
+    return render(request, 'digitmileapi/registration_success.html')
+from django.contrib.auth.decorators import user_passes_test
+
+@user_passes_test(lambda u: u.is_superuser)
+def pending_registrations_view(request):
+    unregistered_schools = UnregisteredSchool.objects.all()
+    unregistered_teachers = UnregisteredTeacher.objects.all()
+    context = {
+        'unregistered_schools': unregistered_schools,
+        'unregistered_teachers': unregistered_teachers,
+    }
+    return render(request, 'digitmileapi/pending_registrations.html', context)
+def home_view(request):
+    return render(request, 'digitmileapi/home.html')

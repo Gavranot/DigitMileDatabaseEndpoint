@@ -1,0 +1,9 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+<h1>Welcome to DigitMile</h1>
+<ul>
+    <li><a href="{% url 'register_school' %}">Register a School</a></li>
+    <li><a href="{% url 'register_teacher' %}">Register as a Teacher</a></li>
+    <li><a href="{% url 'admin:index' %}">Admin Login</a></li>
+</ul>
+{% endblock %}

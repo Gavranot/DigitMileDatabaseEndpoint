@@ -6,12 +6,43 @@ from django.db import models
 class School(models.Model):
     name = models.CharField(max_length=255)
     municipality = models.CharField(max_length=255)
+    region = models.CharField(max_length=255, default="RegionPlaceholder")
+    latitude = models.FloatField(null=True, blank=True)
+    longitude = models.FloatField(null=True, blank=True)
 
     class Meta:
-        unique_together = [['name', 'municipality']] # <--- ADDED
+        unique_together = [['name', 'municipality', 'region']] # <--- ADDED
 
     def __str__(self):
-        return self.name
+        return self.name + " " + self.municipality + " " + self.region
+
+class UnregisteredSchool(models.Model):
+    name = models.CharField(max_length=255)
+    municipality = models.CharField(max_length=255)
+    region = models.CharField(max_length=255, default="RegionPlaceholder")
+    contact_person_name = models.CharField(max_length=255)
+    contact_person_email = models.EmailField()
+    latitude = models.FloatField(null=True, blank=True)
+    longitude = models.FloatField(null=True, blank=True)
+
+
+    class Meta:
+        unique_together = [['name', 'municipality', 'region']]
+
+    def __str__(self):
+        return self.name + " " + self.municipality + " " + self.region
+
+class UnregisteredTeacher(models.Model):
+    full_name = models.CharField(max_length=255)
+    email = models.EmailField(unique=True)
+    school = models.ForeignKey(
+        School,
+        on_delete=models.CASCADE,
+        related_name='unregistered_teachers'
+    )
+
+    def __str__(self):
+        return f"{self.full_name} at {self.school.name}"
 
 class Teacher(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE, null=True, blank=True, related_name='teacher_profile')

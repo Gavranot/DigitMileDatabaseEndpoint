@@ -1,0 +1,33 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+<div id="map" style="height: 400px;"></div>
+<form method="post">
+    {% csrf_token %}
+    {{ form.as_p }}
+    <button type="submit">Register School</button>
+</form>
+
+<script>
+    console.log(google_maps_api_key)
+    function initMap() {
+        var northMacedonia = {lat: 41.6086, lng: 21.7453};
+        var map = new google.maps.Map(document.getElementById('map'), {
+            zoom: 8,
+            center: northMacedonia
+        });
+
+        var marker = new google.maps.Marker({
+            position: northMacedonia,
+            map: map,
+            draggable: true
+        });
+
+        google.maps.event.addListener(marker, 'dragend', function(event) {
+            document.getElementById('id_latitude').value = this.getPosition().lat();
+            document.getElementById('id_longitude').value = this.getPosition().lng();
+        });
+    }
+</script>
+<script async defer src="https://maps.googleapis.com/maps/api/js?key={{ google_maps_api_key }}&callback=initMap">
+</script>
+{% endblock %}
