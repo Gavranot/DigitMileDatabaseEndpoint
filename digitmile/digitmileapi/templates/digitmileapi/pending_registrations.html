@@ -21,7 +21,7 @@
             <td>{{ school.contact_person_name }}</td>
             <td>{{ school.contact_person_email }}</td>
             <td>
-                <a href="{% url 'admin:digitmileapi_unregisteredschool_change' school.id %}">Review</a>
+                <a href="{% url 'approve_school' school.id %}">Approve</a>
             </td>
         </tr>
         {% endfor %}
@@ -45,7 +45,7 @@
             <td>{{ teacher.email }}</td>
             <td>{{ teacher.school }}</td>
             <td>
-                <a href="{% url 'admin:digitmileapi_unregisteredteacher_change' teacher.id %}">Review</a>
+                <a href="{% url 'approve_teacher' teacher.id %}">Approve</a>
             </td>
         </tr>
         {% endfor %}

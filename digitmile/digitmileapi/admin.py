@@ -8,7 +8,7 @@ from django.contrib.auth.models import User # If you need it directly
 
 @admin.register(School)
 class SchoolAdmin(admin.ModelAdmin):
-    list_display = ('name', 'municipality')
+    list_display = ('name', 'municipality', 'region')
     search_fields = ('name',)
 
     def get_queryset(self, request):
@@ -213,55 +213,3 @@ class RunStatisticsAdmin(admin.ModelAdmin):
         return request.user.is_superuser
     def has_delete_permission(self, request, obj=None):
         return request.user.is_superuser
-
-@admin.register(UnregisteredSchool)
-class UnregisteredSchoolAdmin(admin.ModelAdmin):
-    list_display = ('name', 'municipality', 'region', 'contact_person_name', 'contact_person_email')
-    actions = ['approve_schools', 'deny_schools']
-
-    def approve_schools(self, request, queryset):
-        for unregistered_school in queryset:
-            School.objects.create(
-                name=unregistered_school.name,
-                municipality=unregistered_school.municipality,
-                region=unregistered_school.region
-            )
-            unregistered_school.delete()
-        self.message_user(request, "Selected schools have been approved.")
-    approve_schools.short_description = "Approve selected schools"
-
-    def deny_schools(self, request, queryset):
-        count = queryset.count()
-        queryset.delete()
-        self.message_user(request, f"{count} school registrations have been denied.")
-    deny_schools.short_description = "Deny selected schools"
-
-@admin.register(UnregisteredTeacher)
-class UnregisteredTeacherAdmin(admin.ModelAdmin):
-    list_display = ('full_name', 'email', 'school')
-    actions = ['approve_teachers', 'deny_teachers']
-
-    def approve_teachers(self, request, queryset):
-        for unregistered_teacher in queryset:
-            # Create a new user for the teacher
-            username = unregistered_teacher.email.split('@')[0]
-            user = User.objects.create_user(
-                username=username,
-                email=unregistered_teacher.email,
-                password=User.objects.make_random_password()
-            )
-            # Create a teacher profile
-            Teacher.objects.create(
-                user=user,
-                full_name=unregistered_teacher.full_name,
-                school=unregistered_teacher.school
-            )
-            unregistered_teacher.delete()
-        self.message_user(request, "Selected teachers have been approved.")
-    approve_teachers.short_description = "Approve selected teachers"
-
-    def deny_teachers(self, request, queryset):
-        count = queryset.count()
-        queryset.delete()
-        self.message_user(request, f"{count} teacher registrations have been denied.")
-    deny_teachers.short_description = "Deny selected teachers"

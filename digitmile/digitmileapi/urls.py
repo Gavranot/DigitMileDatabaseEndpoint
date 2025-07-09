@@ -5,6 +5,8 @@ from .views import (
     CheckClassroomKeyView,
     InsertLevelStatisticsView,
     pending_registrations_view,
+    approve_school,
+    approve_teacher,
     TeacherStudentViewSet,
     TeacherClassroomListView,
     TeacherSchoolView,
@@ -22,6 +24,8 @@ urlpatterns = [
     path('checkClassroomKey/', CheckClassroomKeyView.as_view(), name='check_classroom_key'),
     path('insertLevelStatistics/', InsertLevelStatisticsView.as_view(), name='insert_level_statistics'),
     path('pending-registrations/', pending_registrations_view, name='pending_registrations'),
+    path('approve-school/<int:school_id>/', approve_school, name='approve_school'),
+    path('approve-teacher/<int:teacher_id>/', approve_teacher, name='approve_teacher'),
     path('teacher/classrooms/', TeacherClassroomListView.as_view(), name='teacher-classrooms-list'),
     path('teacher/school/', TeacherSchoolView.as_view(), name='teacher-school-detail'),
     path('teacher/run-statistics/', TeacherRunStatisticsListView.as_view(), name='teacher-run-statistics-list'), # New URL for teacher's run statistics

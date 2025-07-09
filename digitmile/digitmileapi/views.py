@@ -251,3 +251,39 @@ def pending_registrations_view(request):
     return render(request, 'digitmileapi/pending_registrations.html', context)
 def home_view(request):
     return render(request, 'digitmileapi/home.html')
+from django.shortcuts import get_object_or_404
+from django.contrib.auth.models import User
+
+@user_passes_test(lambda u: u.is_superuser)
+def approve_school(request, school_id):
+    unregistered_school = get_object_or_404(UnregisteredSchool, id=school_id)
+    School.objects.create(
+        name=unregistered_school.name,
+        municipality=unregistered_school.municipality,
+        region=unregistered_school.region,
+        latitude=unregistered_school.latitude,
+        longitude=unregistered_school.longitude
+    )
+    unregistered_school.delete()
+    messages.success(request, f"School '{unregistered_school.name}' has been approved.")
+    return redirect('pending_registrations')
+
+@user_passes_test(lambda u: u.is_superuser)
+def approve_teacher(request, teacher_id):
+    unregistered_teacher = get_object_or_404(UnregisteredTeacher, id=teacher_id)
+    # Create a new user for the teacher
+    username = unregistered_teacher.email.split('@')[0]
+    user = User.objects.create_user(
+        username=username,
+        email=unregistered_teacher.email,
+        password=User.objects.make_random_password()
+    )
+    # Create a teacher profile
+    Teacher.objects.create(
+        user=user,
+        full_name=unregistered_teacher.full_name,
+        school=unregistered_teacher.school
+    )
+    unregistered_teacher.delete()
+    messages.success(request, f"Teacher '{unregistered_teacher.full_name}' has been approved.")
+    return redirect('pending_registrations')
