@@ -26,5 +26,6 @@ urlpatterns = [
     path('register/school/', api_views.register_school_view, name='register_school'),
     path('register/teacher/', api_views.register_teacher_view, name='register_teacher'),
     path('registration-success/', api_views.registration_success, name='registration_success'),
+    path('teacher/statistics/', api_views.teacher_statistics_dashboard, name='teacher_statistics'),
     path('captcha/', include('captcha.urls')),
 ]

@@ -1,8 +1,277 @@
 {% extends "admin/base_site.html" %}
 {% block content %}
-<form method="post">
+<style>
+    .form-group {
+        margin-bottom: 20px;
+    }
+    .form-group label {
+        display: block;
+        font-weight: bold;
+        margin-bottom: 5px;
+    }
+    .form-group input[type="text"],
+    .form-group input[type="email"],
+    .form-group input[type="number"] {
+        width: 100%;
+        max-width: 500px;
+        padding: 8px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+    }
+    .school-selection {
+        margin-top: 10px;
+    }
+    .school-item {
+        margin-bottom: 10px;
+        padding: 10px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        background-color: #f9f9f9;
+    }
+    .school-item label {
+        display: flex;
+        align-items: center;
+        font-weight: normal;
+        cursor: pointer;
+    }
+    .school-item input[type="checkbox"] {
+        margin-right: 10px;
+    }
+    .pending-badge {
+        display: inline-block;
+        margin-left: 10px;
+        padding: 2px 8px;
+        background-color: #ffc107;
+        color: #000;
+        border-radius: 3px;
+        font-size: 0.85em;
+        font-weight: bold;
+        cursor: help;
+        position: relative;
+    }
+    .pending-badge:hover .tooltip {
+        visibility: visible;
+        opacity: 1;
+    }
+    .tooltip {
+        visibility: hidden;
+        width: 200px;
+        background-color: #555;
+        color: #fff;
+        text-align: center;
+        border-radius: 6px;
+        padding: 8px;
+        position: absolute;
+        z-index: 1;
+        bottom: 125%;
+        left: 50%;
+        margin-left: -100px;
+        opacity: 0;
+        transition: opacity 0.3s;
+        font-size: 0.9em;
+        font-weight: normal;
+    }
+    .tooltip::after {
+        content: "";
+        position: absolute;
+        top: 100%;
+        left: 50%;
+        margin-left: -5px;
+        border-width: 5px;
+        border-style: solid;
+        border-color: #555 transparent transparent transparent;
+    }
+    .years-input {
+        margin-left: 30px;
+        margin-top: 5px;
+        display: none;
+    }
+    .years-input.active {
+        display: block;
+    }
+    .years-input label {
+        font-size: 0.9em;
+        font-weight: normal;
+    }
+    .years-input input {
+        width: 100px;
+        padding: 5px;
+        margin-left: 10px;
+    }
+    .help-text {
+        font-size: 0.9em;
+        color: #666;
+        margin-top: 3px;
+    }
+    .error {
+        color: red;
+        font-size: 0.9em;
+        margin-top: 5px;
+    }
+    .selection-count {
+        font-size: 0.9em;
+        color: #666;
+        margin-top: 10px;
+    }
+</style>
+
+<h2>Register Teacher</h2>
+
+<form method="post" id="teacher-form">
     {% csrf_token %}
-    {{ form.as_p }}
+
+    <div class="form-group">
+        <label for="id_full_name">{{ form.full_name.label }}:</label>
+        {{ form.full_name }}
+        {% if form.full_name.help_text %}
+            <div class="help-text">{{ form.full_name.help_text }}</div>
+        {% endif %}
+        {% if form.full_name.errors %}
+            <div class="error">{{ form.full_name.errors }}</div>
+        {% endif %}
+    </div>
+
+    <div class="form-group">
+        <label for="id_email">{{ form.email.label }}:</label>
+        {{ form.email }}
+        {% if form.email.help_text %}
+            <div class="help-text">{{ form.email.help_text }}</div>
+        {% endif %}
+        {% if form.email.errors %}
+            <div class="error">{{ form.email.errors }}</div>
+        {% endif %}
+    </div>
+
+    <div class="form-group">
+        <label for="id_years_teaching">{{ form.years_teaching.label }}:</label>
+        {{ form.years_teaching }}
+        {% if form.years_teaching.help_text %}
+            <div class="help-text">{{ form.years_teaching.help_text }}</div>
+        {% endif %}
+        {% if form.years_teaching.errors %}
+            <div class="error">{{ form.years_teaching.errors }}</div>
+        {% endif %}
+    </div>
+
+    <div class="form-group">
+        <label for="id_phone_number">{{ form.phone_number.label }}:</label>
+        {{ form.phone_number }}
+        {% if form.phone_number.help_text %}
+            <div class="help-text">{{ form.phone_number.help_text }}</div>
+        {% endif %}
+        {% if form.phone_number.errors %}
+            <div class="error">{{ form.phone_number.errors }}</div>
+        {% endif %}
+    </div>
+
+    <div class="form-group">
+        <label>Select Schools (minimum 1, maximum 3):</label>
+        <div class="help-text">Select the schools where you work. You can select up to 3 schools total.</div>
+        <div class="selection-count" id="selection-count">Selected: 0 / 3</div>
+
+        <div class="school-selection" id="all-schools">
+            {% for school in form.schools.field.queryset %}
+                <div class="school-item">
+                    <label>
+                        <input type="checkbox" name="schools" value="{{ school.id }}" class="school-checkbox" data-school-id="school-{{ school.id }}">
+                        {{ school.name }} - {{ school.municipality }}, {{ school.region }}
+                        {% if school.is_pending %}
+                            <span class="pending-badge">
+                                ⚠ Pending
+                                <span class="tooltip">This school is pending approval by an administrator</span>
+                            </span>
+                        {% endif %}
+                    </label>
+                    <div class="years-input" id="years-school-{{ school.id }}">
+                        <label>
+                            Years at this school:
+                            <input type="number" name="years_at_school_{{ school.id }}" min="0" max="50" placeholder="Years">
+                        </label>
+                    </div>
+                </div>
+            {% empty %}
+                <p>No schools available.</p>
+            {% endfor %}
+        </div>
+
+        {% if form.non_field_errors %}
+            <div class="error">{{ form.non_field_errors }}</div>
+        {% endif %}
+    </div>
+
+    <div class="form-group">
+        <label for="id_captcha_0">{{ form.captcha.label }}:</label>
+        {{ form.captcha }}
+        {% if form.captcha.errors %}
+            <div class="error">{{ form.captcha.errors }}</div>
+        {% endif %}
+    </div>
+
     <button type="submit">Register Teacher</button>
 </form>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const checkboxes = document.querySelectorAll('.school-checkbox');
+        const selectionCount = document.getElementById('selection-count');
+        const form = document.getElementById('teacher-form');
+
+        function updateSelectionCount() {
+            const checkedCount = document.querySelectorAll('.school-checkbox:checked').length;
+            selectionCount.textContent = `Selected: ${checkedCount} / 3`;
+
+            // Disable unchecked checkboxes if 3 are already selected
+            checkboxes.forEach(checkbox => {
+                if (!checkbox.checked && checkedCount >= 3) {
+                    checkbox.disabled = true;
+                    checkbox.parentElement.style.opacity = '0.5';
+                } else if (!checkbox.checked) {
+                    checkbox.disabled = false;
+                    checkbox.parentElement.style.opacity = '1';
+                }
+            });
+        }
+
+        function toggleYearsInput(checkbox) {
+            const schoolId = checkbox.dataset.schoolId;
+            const yearsInput = document.getElementById(`years-${schoolId}`);
+
+            if (yearsInput) {
+                if (checkbox.checked) {
+                    yearsInput.classList.add('active');
+                } else {
+                    yearsInput.classList.remove('active');
+                }
+            }
+        }
+
+        // Add event listeners to all checkboxes
+        checkboxes.forEach(checkbox => {
+            checkbox.addEventListener('change', function() {
+                updateSelectionCount();
+                toggleYearsInput(this);
+            });
+        });
+
+        // Validate form on submit
+        form.addEventListener('submit', function(e) {
+            const checkedCount = document.querySelectorAll('.school-checkbox:checked').length;
+
+            if (checkedCount === 0) {
+                e.preventDefault();
+                alert('Please select at least one school.');
+                return false;
+            }
+
+            if (checkedCount > 3) {
+                e.preventDefault();
+                alert('You can select a maximum of 3 schools.');
+                return false;
+            }
+        });
+
+        // Initialize on page load
+        updateSelectionCount();
+    });
+</script>
 {% endblock %}

@@ -5,7 +5,7 @@ from .models import School, Teacher, Student, Classroom, RunStatistics
 class SchoolSerializer(serializers.ModelSerializer):
     class Meta:
         model = School
-        fields = ['name', 'municipality']
+        fields = ['id', 'name', 'municipality', 'region', 'status', 'address', 'website']
 
 class TeacherNameSerializer(serializers.ModelSerializer):
     class Meta:
@@ -42,18 +42,21 @@ class LevelStatisticsInputSerializer(serializers.Serializer):
 class RunStatisticsSerializer(serializers.ModelSerializer):
     class Meta:
         model = RunStatistics
-        # If you want to return the created object, specify fields
-        # otherwise, for just a success message, this might not be strictly needed for the response
-        fields = ['id', 'student', 'player_won']
+        fields = ['id', 'student', 'player_won', 'level', 'score', 'place', 'correct_moves', 'wrong_moves', 'time_elapsed']
         read_only_fields = ['id']
 class ClassroomBasicSerializer(serializers.ModelSerializer):
+    school = SchoolSerializer(read_only=True)
+    school_id = serializers.PrimaryKeyRelatedField(
+        queryset=School.objects.all(), source='school', write_only=True
+    )
+
     class Meta:
         model = Classroom
-        fields = ['id', 'classroom_key']
+        fields = ['id', 'classroom_key', 'classroom_name', 'grade', 'school', 'school_id']
 
 class TeacherStudentManagementSerializer(serializers.ModelSerializer):
     # Display classroom details in a nested way for reads
-    classroom = ClassroomBasicSerializer(read_only=True) 
+    classroom = ClassroomBasicSerializer(read_only=True)
     # Allow setting classroom by ID for writes (create/update)
     classroom_id = serializers.PrimaryKeyRelatedField(
         queryset=Classroom.objects.all(), source='classroom', write_only=True
@@ -61,7 +64,7 @@ class TeacherStudentManagementSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Student
-        fields = ['id', 'full_name', 'classroom', 'classroom_id']
+        fields = ['id', 'full_name', 'date_of_birth', 'grade', 'classroom', 'classroom_id']
         read_only_fields = ['id']
 
     def __init__(self, *args, **kwargs):

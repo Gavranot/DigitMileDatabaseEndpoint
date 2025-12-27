@@ -1,6 +1,45 @@
 {% extends "admin/base_site.html" %}
 {% block content %}
-<div id="map" style="height: 400px;"></div>
+<style>
+    #map {
+        height: 400px;
+        margin-bottom: 20px;
+    }
+    .form-group {
+        margin-bottom: 15px;
+    }
+    .form-group label {
+        display: block;
+        font-weight: bold;
+        margin-bottom: 5px;
+    }
+    .form-group input, .form-group select {
+        width: 100%;
+        padding: 8px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+    }
+    .help-text {
+        font-size: 0.9em;
+        color: #666;
+        margin-top: 3px;
+    }
+    #pac-input {
+        width: 300px;
+        margin: 10px;
+        padding: 10px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+    }
+</style>
+
+<h2>Register School</h2>
+
+<!-- Search box for Google Places autocomplete -->
+<input id="pac-input" class="controls" type="text" placeholder="Search for your school">
+
+<div id="map"></div>
+
 <form method="post">
     {% csrf_token %}
     {{ form.as_p }}
@@ -8,26 +47,116 @@
 </form>
 
 <script>
-    console.log(google_maps_api_key)
+    let map;
+    let marker;
+    let autocomplete;
+    let geocoder;
+
     function initMap() {
-        var northMacedonia = {lat: 41.6086, lng: 21.7453};
-        var map = new google.maps.Map(document.getElementById('map'), {
+        const northMacedonia = {lat: 41.6086, lng: 21.7453};
+
+        // Initialize map
+        map = new google.maps.Map(document.getElementById('map'), {
             zoom: 8,
-            center: northMacedonia
+            center: northMacedonia,
+            mapTypeControl: false,
         });
 
-        var marker = new google.maps.Marker({
+        // Initialize geocoder
+        geocoder = new google.maps.Geocoder();
+
+        // Initialize marker
+        marker = new google.maps.Marker({
             position: northMacedonia,
             map: map,
             draggable: true
         });
 
-        google.maps.event.addListener(marker, 'dragend', function(event) {
-            document.getElementById('id_latitude').value = this.getPosition().lat();
-            document.getElementById('id_longitude').value = this.getPosition().lng();
+        // Initialize autocomplete for the search input
+        const input = document.getElementById('pac-input');
+        autocomplete = new google.maps.places.Autocomplete(input, {
+            componentRestrictions: { country: 'mk' }, // Restrict to North Macedonia
+            types: ['school'], // Focus on schools only (establishment cannot be mixed with other types)
+            fields: ['place_id', 'geometry', 'name', 'formatted_address', 'address_components']
+        });
+
+        // Add the search box to the map
+        map.controls[google.maps.ControlPosition.TOP_LEFT].push(input);
+
+        // When a place is selected from autocomplete
+        autocomplete.addListener('place_changed', function() {
+            const place = autocomplete.getPlace();
+
+            if (!place.geometry || !place.geometry.location) {
+                window.alert("No details available for: '" + place.name + "'");
+                return;
+            }
+
+            // Center map on the selected place
+            map.setCenter(place.geometry.location);
+            map.setZoom(17);
+
+            // Update marker position
+            marker.setPosition(place.geometry.location);
+
+            // Update form fields
+            document.getElementById('id_latitude').value = place.geometry.location.lat();
+            document.getElementById('id_longitude').value = place.geometry.location.lng();
+            document.getElementById('id_google_maps_address').value = place.formatted_address || '';
+
+            // Try to pre-fill the school name if it's empty
+            if (!document.getElementById('id_name').value && place.name) {
+                document.getElementById('id_name').value = place.name;
+            }
+
+            // Try to pre-fill address if it's empty
+            if (!document.getElementById('id_address').value && place.formatted_address) {
+                document.getElementById('id_address').value = place.formatted_address;
+            }
+
+            // Parse address components
+            if (place.address_components) {
+                place.address_components.forEach(component => {
+                    const types = component.types;
+                    if (types.includes('locality') && !document.getElementById('id_municipality').value) {
+                        document.getElementById('id_municipality').value = component.long_name;
+                    }
+                    if (types.includes('administrative_area_level_1') && !document.getElementById('id_region').value) {
+                        document.getElementById('id_region').value = component.long_name;
+                    }
+                });
+            }
+        });
+
+        // Update form fields when marker is dragged
+        marker.addListener('dragend', function(event) {
+            const position = marker.getPosition();
+            document.getElementById('id_latitude').value = position.lat();
+            document.getElementById('id_longitude').value = position.lng();
+
+            // Reverse geocode to get address
+            geocoder.geocode({ location: position }, function(results, status) {
+                if (status === 'OK' && results[0]) {
+                    document.getElementById('id_google_maps_address').value = results[0].formatted_address;
+                }
+            });
         });
     }
-</script>
-<script async defer src="https://maps.googleapis.com/maps/api/js?key={{ google_maps_api_key }}&callback=initMap">
+
+    // Load Google Maps API with Places library
+    function loadGoogleMapsScript() {
+        const script = document.createElement('script');
+        script.src = `https://maps.googleapis.com/maps/api/js?key={{ google_maps_api_key }}&libraries=places&callback=initMap`;
+        script.async = true;
+        script.defer = true;
+        document.head.appendChild(script);
+    }
+
+    // Load the script when the page is ready
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', loadGoogleMapsScript);
+    } else {
+        loadGoogleMapsScript();
+    }
 </script>
 {% endblock %}

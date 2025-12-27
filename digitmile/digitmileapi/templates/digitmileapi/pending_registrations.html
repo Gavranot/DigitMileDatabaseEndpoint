@@ -13,7 +13,7 @@
         </tr>
     </thead>
     <tbody>
-        {% for school in unregistered_schools %}
+        {% for school in pending_schools %}
         <tr>
             <td>{{ school.name }}</td>
             <td>{{ school.municipality }}</td>
@@ -22,6 +22,7 @@
             <td>{{ school.contact_person_email }}</td>
             <td>
                 <a href="{% url 'approve_school' school.id %}">Approve</a>
+                <a href="{% url 'reject_school' school.id %}">Reject</a>
             </td>
         </tr>
         {% endfor %}
@@ -39,13 +40,14 @@
         </tr>
     </thead>
     <tbody>
-        {% for teacher in unregistered_teachers %}
+        {% for teacher in pending_teachers %}
         <tr>
             <td>{{ teacher.full_name }}</td>
             <td>{{ teacher.email }}</td>
             <td>{{ teacher.school }}</td>
             <td>
                 <a href="{% url 'approve_teacher' teacher.id %}">Approve</a>
+                <a href="{% url 'reject_teacher' teacher.id %}">Reject</a>
             </td>
         </tr>
         {% endfor %}

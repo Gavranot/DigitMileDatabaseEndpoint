@@ -1,111 +1,391 @@
 # your_app_name/admin.py
 from django.contrib import admin
-from .models import School, Teacher, Classroom, Student, RunStatistics, UnregisteredSchool, UnregisteredTeacher
-from django.contrib.auth.models import User # If you need it directly
+from django import forms
+from .models import School, Teacher, Classroom, Student, RunStatistics, TeacherSchoolAssignment
+from django.contrib.auth.models import User
 
 # Make sure TeacherProfileInline and UserAdmin are set up as discussed before
 # if you want to manage Teacher profiles through the User admin.
 
 @admin.register(School)
 class SchoolAdmin(admin.ModelAdmin):
-    list_display = ('name', 'municipality', 'region')
-    search_fields = ('name',)
+    list_display = ('name', 'municipality', 'region', 'status', 'created_at')
+    list_filter = ('status', 'region')
+    search_fields = ('name', 'municipality', 'contact_person_name', 'director_name')
+    readonly_fields = ('created_at', 'updated_at')
+
+    fieldsets = (
+        ('Basic Information', {
+            'fields': ('name', 'municipality', 'region', 'address', 'google_maps_address', 'latitude', 'longitude', 'website')
+        }),
+        ('Contact Person (Registration)', {
+            'fields': ('contact_person_name', 'contact_person_email', 'contact_person_phone')
+        }),
+        ('Official School Information', {
+            'fields': ('director_name', 'director_email', 'school_email', 'school_phone')
+        }),
+        ('Status', {
+            'fields': ('status', 'created_at', 'updated_at'),
+            'description': '<strong style="color: #d63031;">⚠️ WARNING:</strong> Changing status to REJECTED will cascade to teachers! '
+                          'Teachers who ONLY have this school will be REJECTED and all their classrooms, students, '
+                          'and run statistics will be permanently DELETED.'
+        }),
+    )
 
     def get_queryset(self, request):
         qs = super().get_queryset(request)
         if request.user.is_superuser:
-            return qs # Superusers see all schools
-        if hasattr(request.user, 'teacher_profile') and request.user.teacher_profile.school:
-            # Teachers see only their own school
-            return qs.filter(pk=request.user.teacher_profile.school.pk)
-        return qs.none() # No schools if not superuser or teacher without a school
+            return qs  # Superusers see all schools
+        if hasattr(request.user, 'teacher_profile'):
+            # Teachers see only their assigned schools
+            return qs.filter(teachers=request.user.teacher_profile, status='APPROVED')
+        return qs.none()
 
     def get_readonly_fields(self, request, obj=None):
-        # If a teacher is viewing their school, make all fields read-only
-        if not request.user.is_superuser and obj and hasattr(request.user, 'teacher_profile') and obj == request.user.teacher_profile.school:
-            # Return a list of all model fields to make them read-only
-            return [field.name for field in obj._meta.fields]
-        return super().get_readonly_fields(request, obj)
+        readonly = list(super().get_readonly_fields(request, obj))
+        # Teachers cannot edit any fields
+        if not request.user.is_superuser and hasattr(request.user, 'teacher_profile'):
+            return [field.name for field in obj._meta.fields] if obj else readonly
+        return readonly
 
     def has_add_permission(self, request):
-        # Only superusers can add schools
         return request.user.is_superuser
 
     def has_change_permission(self, request, obj=None):
-        # Superusers can change. Teachers can view (due to readonly_fields) but not save changes.
         if request.user.is_superuser:
             return True
-        # If obj exists and belongs to the teacher, they can open the change form (which will be read-only)
-        if obj and hasattr(request.user, 'teacher_profile') and obj == request.user.teacher_profile.school:
-            return True # Allows opening the form, get_readonly_fields makes it read-only
+        # Teachers can view their schools in read-only mode
+        if obj and hasattr(request.user, 'teacher_profile'):
+            return obj in request.user.teacher_profile.schools.filter(status='APPROVED')
         return False
 
     def has_delete_permission(self, request, obj=None):
-        # Only superusers can delete schools
         return request.user.is_superuser
 
-# Teacher Admin (if needed separately, or managed via UserAdmin inline)
+    def save_model(self, request, obj, form, change):
+        """Override to show notification of cascade effects when status changes to REJECTED"""
+        from django.contrib import messages
+
+        # Track if status is changing to REJECTED
+        status_changing_to_rejected = False
+        if change and 'status' in form.changed_data:
+            old_status = School.objects.get(pk=obj.pk).status
+            if old_status != 'REJECTED' and obj.status == 'REJECTED':
+                status_changing_to_rejected = True
+
+                # Get affected teachers before save
+                teachers_at_school = Teacher.objects.filter(schools=obj)
+                affected_teachers = []
+                total_classrooms = 0
+
+                for teacher in teachers_at_school:
+                    if teacher.schools.count() == 1:
+                        classrooms_count = Classroom.objects.filter(teacher=teacher).count()
+                        affected_teachers.append((teacher.full_name, classrooms_count))
+                        total_classrooms += classrooms_count
+
+        # Save the model (cascade will happen in School.save())
+        super().save_model(request, obj, form, change)
+
+        # Show warning message if cascade happened
+        if status_changing_to_rejected and affected_teachers:
+            teacher_details = ", ".join([f"{name} ({count} classrooms)" for name, count in affected_teachers])
+            messages.warning(
+                request,
+                f"School '{obj.name}' status changed to REJECTED. "
+                f"CASCADE EXECUTED: {len(affected_teachers)} teacher(s) were rejected and their data deleted: {teacher_details}"
+            )
+        elif status_changing_to_rejected:
+            messages.info(
+                request,
+                f"School '{obj.name}' status changed to REJECTED. "
+                f"No teachers were affected (they have assignments to other schools)."
+            )
+
+class TeacherSchoolAssignmentInline(admin.TabularInline):
+    model = TeacherSchoolAssignment
+    extra = 1
+    max_num = 3
+
+class StudentInline(admin.TabularInline):
+    model = Student
+    extra = 0
+    fields = ('full_name', 'date_of_birth', 'grade')
+    readonly_fields = ('full_name', 'date_of_birth', 'grade')
+    can_delete = True
+
+    def has_add_permission(self, request, obj=None):
+        # Disable adding students via inline (use bulk_students field instead)
+        return False
+
+# Teacher Admin
 @admin.register(Teacher)
 class TeacherAdmin(admin.ModelAdmin):
-    list_display = ('user', 'full_name', 'school')
-    search_fields = ('full_name', 'user__username', 'school__name')
+    list_display = ('full_name', 'email', 'status', 'get_schools', 'years_teaching', 'phone_number', 'created_at')
+    list_filter = ('status', 'schools')
+    search_fields = ('full_name', 'email', 'user__username')
     raw_id_fields = ('user',)
+    readonly_fields = ('created_at', 'updated_at')
+    inlines = [TeacherSchoolAssignmentInline]
+
+    fieldsets = (
+        ('Basic Information', {
+            'fields': ('full_name', 'email', 'phone_number', 'years_teaching')
+        }),
+        ('User Account', {
+            'fields': ('user',),
+            'description': 'User account is created automatically when teacher is approved'
+        }),
+        ('Status', {
+            'fields': ('status', 'created_at', 'updated_at'),
+            'description': '<strong style="color: #d63031;">⚠️ WARNING:</strong> Changing status to REJECTED will permanently DELETE '
+                          'all classrooms, students, and run statistics created by this teacher!'
+        }),
+    )
+
+    def get_schools(self, obj):
+        schools = obj.schools.all()
+        return ", ".join([f"{s.name} ({'PENDING' if s.is_pending else 'APPROVED'})" for s in schools])
+    get_schools.short_description = 'Schools'
+
+    def save_model(self, request, obj, form, change):
+        """Override to show notification of cascade effects when status changes to REJECTED"""
+        from django.contrib import messages
+
+        # Track if status is changing to REJECTED
+        status_changing_to_rejected = False
+        classrooms_to_delete = 0
+
+        if change and 'status' in form.changed_data:
+            old_status = Teacher.objects.get(pk=obj.pk).status
+            if old_status != 'REJECTED' and obj.status == 'REJECTED':
+                status_changing_to_rejected = True
+                classrooms_to_delete = Classroom.objects.filter(teacher=obj).count()
+
+        # Save the model (cascade will happen in Teacher.save())
+        super().save_model(request, obj, form, change)
+
+        # Show warning message if cascade happened
+        if status_changing_to_rejected:
+            messages.warning(
+                request,
+                f"Teacher '{obj.full_name}' status changed to REJECTED. "
+                f"CASCADE EXECUTED: {classrooms_to_delete} classroom(s) and all associated students and run statistics were permanently deleted."
+            )
+
+@admin.register(TeacherSchoolAssignment)
+class TeacherSchoolAssignmentAdmin(admin.ModelAdmin):
+    list_display = ('teacher', 'school', 'years_at_school')
+    list_filter = ('school__status',)
+    search_fields = ('teacher__full_name', 'school__name')
+
+class ClassroomAdminForm(forms.ModelForm):
+    """Custom form to handle teacher auto-assignment and bulk student creation"""
+
+    bulk_students = forms.CharField(
+        required=False,
+        widget=forms.Textarea(attrs={
+            'rows': 6,
+            'cols': 80,
+            'placeholder': 'Add multiple students (comma-separated):\nJohn Doe/2015-03-15, Jane Smith/2015-07-22, ...'
+        }),
+        help_text='Format: FullName/DateOfBirth (YYYY-MM-DD), comma-separated. Example: John Doe/2015-03-15, Jane Smith/2015-07-22',
+        label='Bulk Add Students'
+    )
+
+    class Meta:
+        model = Classroom
+        fields = '__all__'
+
+    def __init__(self, *args, **kwargs):
+        self.request = kwargs.pop('request', None)
+        super().__init__(*args, **kwargs)
+
+    def clean_bulk_students(self):
+        """Validate and parse bulk student input"""
+        bulk_data = self.cleaned_data.get('bulk_students', '').strip()
+        if not bulk_data:
+            return []
+
+        students = []
+        errors = []
+
+        # Split by comma
+        entries = [entry.strip() for entry in bulk_data.split(',') if entry.strip()]
+
+        for idx, entry in enumerate(entries, 1):
+            # Split by forward slash
+            parts = entry.split('/')
+            if len(parts) != 2:
+                errors.append(f"Entry {idx} ('{entry}'): Must be in format 'FullName/DateOfBirth'")
+                continue
+
+            full_name = parts[0].strip()
+            dob_str = parts[1].strip()
+
+            if not full_name:
+                errors.append(f"Entry {idx}: Name cannot be empty")
+                continue
+
+            # Parse date
+            from datetime import datetime
+            try:
+                dob = datetime.strptime(dob_str, '%Y-%m-%d').date()
+            except ValueError:
+                errors.append(f"Entry {idx} ('{entry}'): Invalid date format. Use YYYY-MM-DD (e.g., 2015-03-15)")
+                continue
+
+            students.append({
+                'full_name': full_name,
+                'date_of_birth': dob
+            })
+
+        if errors:
+            raise forms.ValidationError('\n'.join(errors))
+
+        return students
+
+    def clean(self):
+        cleaned_data = super().clean()
+        # Auto-assign teacher if user is not superuser and has teacher_profile
+        if self.request and not self.request.user.is_superuser and hasattr(self.request.user, 'teacher_profile'):
+            # Set teacher before model validation
+            self.instance.teacher = self.request.user.teacher_profile
+        return cleaned_data
 
 @admin.register(Classroom)
 class ClassroomAdmin(admin.ModelAdmin):
-    list_display = ('classroom_key', 'classroom_name', 'teacher')
-    search_fields = ('classroom_key', 'teacher__full_name', 'teacher__user__username')
-    list_filter = ('teacher',) # This will be useful for superusers
+    form = ClassroomAdminForm
+    list_display = ('classroom_key', 'classroom_name', 'grade', 'school', 'teacher')
+    search_fields = ('classroom_key', 'classroom_name', 'teacher__full_name', 'school__name')
+    list_filter = ('school', 'teacher', 'school__status', 'grade')
+    inlines = [StudentInline]
 
     # Restrict queryset for non-superusers (teachers)
     def get_queryset(self, request):
         qs = super().get_queryset(request)
         if request.user.is_superuser:
             return qs
-        # Assuming teacher profile is linked to user via 'teacher_profile'
         if hasattr(request.user, 'teacher_profile'):
             return qs.filter(teacher=request.user.teacher_profile)
-        return qs.none() # Or handle if user is staff but not teacher and not superuser
+        return qs.none()
 
-    # Teachers should not add new classrooms via this admin
+    def get_form(self, request, obj=None, **kwargs):
+        """Pass request to the form"""
+        Form = super().get_form(request, obj, **kwargs)
+
+        class FormWithRequest(Form):
+            def __new__(cls, *args, **kwargs):
+                kwargs['request'] = request
+                return Form(*args, **kwargs)
+
+        return FormWithRequest
+
+    def get_fields(self, request, obj=None):
+        """Control which fields are shown in the form"""
+        if request.user.is_superuser:
+            # Superusers see all fields including grade and bulk students
+            return ['classroom_key', 'classroom_name', 'grade', 'school', 'teacher', 'bulk_students']
+        else:
+            # Teachers see classroom fields, grade, and bulk student creation (teacher is auto-assigned)
+            return ['classroom_key', 'classroom_name', 'grade', 'school', 'bulk_students']
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        """Filter school and teacher choices based on permissions"""
+        if db_field.name == "school":
+            if not request.user.is_superuser and hasattr(request.user, 'teacher_profile'):
+                # Limit to schools assigned to this teacher (including PENDING)
+                kwargs["queryset"] = request.user.teacher_profile.schools.exclude(status='REJECTED')
+        if db_field.name == "teacher":
+            # Only superusers see this field (see get_fields)
+            if request.user.is_superuser:
+                # Superusers can assign to any approved teacher
+                kwargs["queryset"] = Teacher.objects.filter(status='APPROVED')
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
+    def save_model(self, request, obj, form, change):
+        """Auto-assign teacher for non-superusers and handle bulk student creation"""
+        from django.contrib import messages
+
+        if not request.user.is_superuser and hasattr(request.user, 'teacher_profile'):
+            # Auto-assign the logged-in teacher
+            obj.teacher = request.user.teacher_profile
+
+        # Save the classroom first
+        super().save_model(request, obj, form, change)
+
+        # Handle bulk student creation
+        bulk_students = form.cleaned_data.get('bulk_students', [])
+        if bulk_students:
+            created_count = 0
+            skipped_count = 0
+            errors = []
+
+            for student_data in bulk_students:
+                full_name = student_data['full_name']
+                date_of_birth = student_data['date_of_birth']
+
+                # Check if student already exists in this classroom
+                if Student.objects.filter(full_name=full_name, classroom=obj).exists():
+                    skipped_count += 1
+                    continue
+
+                try:
+                    # Create the student with grade from classroom if available
+                    Student.objects.create(
+                        full_name=full_name,
+                        date_of_birth=date_of_birth,
+                        grade=obj.grade,  # Auto-assign classroom grade to student
+                        classroom=obj
+                    )
+                    created_count += 1
+                except Exception as e:
+                    errors.append(f"{full_name}: {str(e)}")
+
+            # Show success/info messages
+            if created_count > 0:
+                messages.success(request, f"Successfully created {created_count} student(s).")
+            if skipped_count > 0:
+                messages.info(request, f"Skipped {skipped_count} student(s) (already exist in classroom).")
+            if errors:
+                messages.warning(request, f"Errors occurred:\n" + "\n".join(errors))
+
+    # Allow teachers to add classrooms to their assigned schools
     def has_add_permission(self, request):
         if request.user.is_superuser:
             return True
-        return False # Teachers cannot add classrooms
+        # Teachers can add classrooms if they have assigned schools
+        if hasattr(request.user, 'teacher_profile'):
+            return request.user.teacher_profile.schools.exclude(status='REJECTED').exists()
+        return False
 
-    # Teachers should not change classroom details (e.g., key or assigned teacher)
     def has_change_permission(self, request, obj=None):
         if request.user.is_superuser:
             return True
-        # Allow viewing but not changing for teachers for their own classrooms
-        if obj is not None and hasattr(request.user, 'teacher_profile') and obj.teacher == request.user.teacher_profile:
-             # If you want them to change *some* fields, you'd need more logic or readonly_fields
-             # For simplicity here, let's say they can't change anything about the classroom object itself.
-             # To allow them to click into it and see students, they need view, but change is too broad.
-             # This method controls if the "Save" buttons appear on the change form.
-             # Perhaps a better approach is to make fields readonly for them.
-            return False # No "Save" buttons for teachers on classroom edit page
+        if obj is not None and hasattr(request.user, 'teacher_profile'):
+            return obj.teacher == request.user.teacher_profile
         return False
 
-
     def get_readonly_fields(self, request, obj=None):
-        if not request.user.is_superuser and obj and hasattr(request.user, 'teacher_profile') and obj.teacher == request.user.teacher_profile:
-            # Make all fields readonly for teachers viewing their classroom
-            return [field.name for field in self.opts.fields if field.name != self.opts.pk.name]
+        """Make fields read-only when editing (not adding)"""
+        if not request.user.is_superuser and obj and hasattr(request.user, 'teacher_profile'):
+            # When editing, teachers can only change classroom_name and grade
+            return ['classroom_key', 'school']
         return super().get_readonly_fields(request, obj)
 
-
-    # Teachers should not delete classrooms
     def has_delete_permission(self, request, obj=None):
         if request.user.is_superuser:
             return True
+        if obj is not None and hasattr(request.user, 'teacher_profile'):
+            return obj.teacher == request.user.teacher_profile
         return False
 
 @admin.register(Student)
 class StudentAdmin(admin.ModelAdmin):
-    list_display = ('full_name', 'classroom', 'get_teacher_name')
+    list_display = ('full_name', 'date_of_birth', 'grade', 'classroom', 'get_teacher_name')
     search_fields = ('full_name', 'classroom__classroom_key')
-    list_filter = ('classroom__teacher',) # Useful for superusers
+    list_filter = ('classroom__teacher', 'grade')
+    fields = ('full_name', 'date_of_birth', 'grade', 'classroom')
 
     def get_teacher_name(self, obj):
         if obj.classroom:
@@ -186,8 +466,8 @@ class StudentAdmin(admin.ModelAdmin):
 
 @admin.register(RunStatistics)
 class RunStatisticsAdmin(admin.ModelAdmin):
-    list_display = ('student', 'player_won', 'get_classroom_from_student')
-    list_filter = ('player_won', 'student__classroom__teacher')
+    list_display = ('student', 'level', 'score', 'place', 'player_won', 'correct_moves', 'wrong_moves', 'time_elapsed', 'get_classroom_from_student')
+    list_filter = ('player_won', 'level', 'place', 'student__classroom__teacher')
     search_fields = ('student__full_name',)
 
     def get_classroom_from_student(self, obj):

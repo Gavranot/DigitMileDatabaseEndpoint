@@ -8,16 +8,123 @@ from .serializers import TeacherStudentManagementSerializer # Add this new seria
 from django.shortcuts import render, redirect
 from django.contrib import messages
 from django.urls import reverse_lazy
-from .forms import UnregisteredSchoolForm, UnregisteredTeacherForm
+from .forms import SchoolRegistrationForm, TeacherRegistrationForm
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
-from .models import Classroom, Student, Teacher, School, RunStatistics, UnregisteredSchool, UnregisteredTeacher
+from .models import Classroom, Student, Teacher, School, RunStatistics, TeacherSchoolAssignment
 from .serializers import (
     CheckClassroomResponseSerializer,
     LevelStatisticsInputSerializer,
     RunStatisticsSerializer # Import if you use it for creation validation/response
 )
+from django.core.mail import send_mail
+from django.conf import settings
+import logging
+
+# Set up logger for email operations
+logger = logging.getLogger(__name__)
+
+def send_school_approval_email(school):
+    """Send approval notification email to school contact person"""
+    logger.info(f"Attempting to send approval email to school: {school.name} ({school.contact_person_email})")
+
+    subject = f'School Registration Approved: {school.name}'
+    message = f'''Dear {school.contact_person_name or 'School Administrator'},
+
+Your school registration has been approved!
+
+School Details:
+- Name: {school.name}
+- Municipality: {school.municipality}
+- Region: {school.region}
+- Address: {school.address}
+
+You can now proceed with registering teachers for your school.
+
+Best regards,
+DigitMile Team
+'''
+
+    # Log email configuration
+    logger.info(f"Email backend: {settings.EMAIL_BACKEND}")
+    logger.info(f"Email host: {settings.EMAIL_HOST}")
+    logger.info(f"From email: {settings.DEFAULT_FROM_EMAIL}")
+    logger.info(f"To email: {school.contact_person_email}")
+
+    try:
+        result = send_mail(
+            subject,
+            message,
+            settings.DEFAULT_FROM_EMAIL,
+            [school.contact_person_email],
+            fail_silently=False,
+        )
+        logger.info(f"Email sent successfully to {school.contact_person_email}. Result: {result}")
+
+        # Warn if using console backend (emails won't actually be sent)
+        if 'console' in settings.EMAIL_BACKEND.lower():
+            logger.warning(
+                f"⚠️  Using console backend - email was printed to console but NOT sent to inbox. "
+                f"To send real emails, configure SMTP settings in .env"
+            )
+    except Exception as e:
+        logger.error(f"Failed to send school approval email to {school.contact_person_email}")
+        logger.error(f"Error type: {type(e).__name__}")
+        logger.error(f"Error message: {str(e)}")
+        logger.exception("Full traceback:")
+
+def send_teacher_approval_email(email, username, password, teacher):
+    """Send approval notification email with credentials to teacher"""
+    logger.info(f"Attempting to send approval email to teacher: {teacher.full_name} ({email})")
+
+    subject = 'Teacher Registration Approved - Login Credentials'
+    message = f'''Dear {teacher.full_name},
+
+Your teacher registration has been approved!
+
+Your login credentials:
+- Username: {username}
+- Password: {password}
+
+Please login at: {settings.SITE_URL if hasattr(settings, 'SITE_URL') else 'your login URL'}/admin/
+
+For security reasons, please change your password after your first login.
+
+Schools you're assigned to:
+{chr(10).join([f"- {assignment.school.name} ({assignment.years_at_school} years)" for assignment in teacher.school_assignments.all()])}
+
+Best regards,
+DigitMile Team
+'''
+
+    # Log email configuration
+    logger.info(f"Email backend: {settings.EMAIL_BACKEND}")
+    logger.info(f"Email host: {settings.EMAIL_HOST}")
+    logger.info(f"From email: {settings.DEFAULT_FROM_EMAIL}")
+    logger.info(f"To email: {email}")
+
+    try:
+        result = send_mail(
+            subject,
+            message,
+            settings.DEFAULT_FROM_EMAIL,
+            [email],
+            fail_silently=False,
+        )
+        logger.info(f"Email sent successfully to {email}. Result: {result}")
+
+        # Warn if using console backend (emails won't actually be sent)
+        if 'console' in settings.EMAIL_BACKEND.lower():
+            logger.warning(
+                f"⚠️  Using console backend - email was printed to console but NOT sent to inbox. "
+                f"To send real emails, configure SMTP settings in .env"
+            )
+    except Exception as e:
+        logger.error(f"Failed to send teacher approval email to {email}")
+        logger.error(f"Error type: {type(e).__name__}")
+        logger.error(f"Error message: {str(e)}")
+        logger.exception("Full traceback:")
 
 class CheckClassroomKeyView(APIView):
     """
@@ -31,10 +138,10 @@ class CheckClassroomKeyView(APIView):
 
         try:
             # Fetch the classroom using its unique classroom_key
-            # select_related fetches related Teacher and School objects in the same DB query
+            # select_related fetches related Teacher objects in the same DB query
             print(Classroom.objects.count())
 
-            classroom = Classroom.objects.select_related('teacher', 'teacher__school').get(classroom_key=classroom_key_from_request)
+            classroom = Classroom.objects.select_related('teacher').get(classroom_key=classroom_key_from_request)
 
             # Now you can safely access classroom attributes
             print(f"Found classroom: ID={classroom.id}, Key={classroom.classroom_key}, Teacher={classroom.teacher.full_name}")
@@ -43,8 +150,11 @@ class CheckClassroomKeyView(APIView):
             students_queryset = Student.objects.filter(classroom=classroom)
             student_names = [student.full_name for student in students_queryset]
 
+            # Get the school directly from the classroom
+            school = classroom.school
+
             response_data = {
-                'school': classroom.teacher.school,
+                'school': school,
                 'teacher_data': classroom.teacher.full_name,
                 'students': student_names
             }
@@ -91,7 +201,13 @@ class InsertLevelStatisticsView(APIView):
             # Create RunStatistics instance using Django ORM
             run_stat = RunStatistics.objects.create(
                 student=student,
-                player_won=player_won
+                player_won=player_won,
+                level=level_statistics.get('level'),
+                score=level_statistics.get('score'),
+                place=level_statistics.get('place'),
+                correct_moves=level_statistics.get('correctMoves'),
+                wrong_moves=level_statistics.get('wrongMoves'),
+                time_elapsed=level_statistics.get('timeElapsed')
             )
             # Optionally, serialize and return the created object if needed by the frontend
             # run_stat_serializer = RunStatisticsSerializer(run_stat)
@@ -109,14 +225,17 @@ import os
 
 def register_school_view(request):
     if request.method == 'POST':
-        form = UnregisteredSchoolForm(request.POST)
+        form = SchoolRegistrationForm(request.POST)
         if form.is_valid():
-            form.save()
+            # Create school with PENDING status (default)
+            school = form.save(commit=False)
+            school.status = 'PENDING'  # Explicitly set status
+            school.save()
             messages.success(request, 'School registration submitted for approval.')
-            return redirect('registration_success')  # Redirect to a success page
+            return redirect('registration_success')
     else:
-        form = UnregisteredSchoolForm()
-    
+        form = SchoolRegistrationForm()
+
     context = {
         'form': form,
         'google_maps_api_key': os.getenv('GOOGLE_MAPS_API_KEY')
@@ -125,13 +244,31 @@ def register_school_view(request):
 
 def register_teacher_view(request):
     if request.method == 'POST':
-        form = UnregisteredTeacherForm(request.POST)
+        form = TeacherRegistrationForm(request.POST)
         if form.is_valid():
-            form.save()
+            # Create the Teacher instance with PENDING status
+            teacher = Teacher.objects.create(
+                full_name=form.cleaned_data['full_name'],
+                email=form.cleaned_data['email'],
+                years_teaching=form.cleaned_data.get('years_teaching'),
+                phone_number=form.cleaned_data.get('phone_number', ''),
+                status='PENDING'
+            )
+
+            # Process selected schools (both pending and approved)
+            for school in form.cleaned_data.get('schools', []):
+                years_key = f'years_at_school_{school.id}'
+                years_at_school = request.POST.get(years_key)
+                TeacherSchoolAssignment.objects.create(
+                    teacher=teacher,
+                    school=school,
+                    years_at_school=int(years_at_school) if years_at_school and years_at_school.isdigit() else None
+                )
+
             messages.success(request, 'Teacher registration submitted for approval.')
-            return redirect('registration_success')  # Redirect to a success page
+            return redirect('registration_success')
     else:
-        form = UnregisteredTeacherForm()
+        form = TeacherRegistrationForm()
     return render(request, 'digitmileapi/register_teacher.html', {'form': form})
 class IsTeacher(permissions.BasePermission):
     """
@@ -200,26 +337,25 @@ class TeacherClassroomListView(generics.ListAPIView):
         """
         teacher = self.request.user.teacher_profile
         return Classroom.objects.filter(teacher=teacher)
-class TeacherSchoolView(generics.RetrieveAPIView):
+class TeacherSchoolView(generics.ListAPIView):
     """
-    API endpoint that allows a teacher to view their own school's details.
+    API endpoint that allows a teacher to view their assigned schools' details.
+    Returns all schools (approved AND pending) assigned to the teacher.
+    Teachers can work with pending schools to prepare classrooms/students before approval.
     """
     serializer_class = SchoolSerializer
     permission_classes = [IsTeacher]
 
-    def get_object(self):
+    def get_queryset(self):
         """
-        Returns the school associated with the currently authenticated teacher.
+        Returns all schools (approved and pending) associated with the currently authenticated teacher.
+        Teachers should be able to work with pending schools.
         """
-        # Ensure the teacher profile and school exist to prevent errors
         teacher_profile = getattr(self.request.user, 'teacher_profile', None)
-        if teacher_profile and teacher_profile.school:
-            return teacher_profile.school
-        # This case should ideally not be reached if IsTeacher permission works correctly
-        # and data integrity is maintained (teacher always has a school).
-        # Consider raising Http404 if school is not found.
-        from django.http import Http404
-        raise Http404("School not found for this teacher.")
+        if teacher_profile:
+            # Return both APPROVED and PENDING schools, exclude REJECTED
+            return teacher_profile.schools.exclude(status='REJECTED')
+        return School.objects.none()
 class TeacherRunStatisticsListView(generics.ListAPIView):
     """
     API endpoint that allows teachers to view run statistics
@@ -242,11 +378,11 @@ from django.contrib.auth.decorators import user_passes_test
 
 @user_passes_test(lambda u: u.is_superuser)
 def pending_registrations_view(request):
-    unregistered_schools = UnregisteredSchool.objects.all()
-    unregistered_teachers = UnregisteredTeacher.objects.all()
+    pending_schools = School.objects.pending()
+    pending_teachers = Teacher.objects.pending()
     context = {
-        'unregistered_schools': unregistered_schools,
-        'unregistered_teachers': unregistered_teachers,
+        'pending_schools': pending_schools,
+        'pending_teachers': pending_teachers,
     }
     return render(request, 'digitmileapi/pending_registrations.html', context)
 def home_view(request):
@@ -256,34 +392,188 @@ from django.contrib.auth.models import User
 
 @user_passes_test(lambda u: u.is_superuser)
 def approve_school(request, school_id):
-    unregistered_school = get_object_or_404(UnregisteredSchool, id=school_id)
-    School.objects.create(
-        name=unregistered_school.name,
-        municipality=unregistered_school.municipality,
-        region=unregistered_school.region,
-        latitude=unregistered_school.latitude,
-        longitude=unregistered_school.longitude
+    school = get_object_or_404(School, id=school_id, status='PENDING')
+
+    # Update status to APPROVED
+    school.status = 'APPROVED'
+    school.save()
+
+    # Send approval email to school contact person
+    send_school_approval_email(school)
+
+    messages.success(request, f"School '{school.name}' has been approved and notified via email.")
+    return redirect('pending_registrations')
+
+@user_passes_test(lambda u: u.is_superuser)
+def reject_school(request, school_id):
+    """
+    Reject a school registration and cascade rejection to teachers who ONLY have this school.
+    Deletes all classrooms, students, and run statistics for rejected teachers.
+    """
+    school = get_object_or_404(School, id=school_id, status='PENDING')
+
+    # Find all teachers assigned to this school
+    teachers_at_school = Teacher.objects.filter(schools=school)
+
+    teachers_to_reject = []
+    for teacher in teachers_at_school:
+        # Check if this is the teacher's ONLY school
+        school_count = teacher.schools.count()
+        if school_count == 1:
+            # This is their only school, they will be rejected
+            teachers_to_reject.append(teacher)
+
+    # Update status to REJECTED
+    school.status = 'REJECTED'
+    school.save()
+
+    # Reject teachers who only have this school
+    rejected_teacher_names = []
+    for teacher in teachers_to_reject:
+        # Delete all classrooms (cascades to students and run statistics)
+        Classroom.objects.filter(teacher=teacher).delete()
+
+        # Set teacher status to REJECTED
+        teacher.status = 'REJECTED'
+        teacher.save()
+
+        rejected_teacher_names.append(teacher.full_name)
+
+    # Build message
+    if rejected_teacher_names:
+        teachers_msg = f" The following teachers were also rejected and their data deleted: {', '.join(rejected_teacher_names)}"
+    else:
+        teachers_msg = " No teachers were affected (they have assignments to other schools)."
+
+    messages.warning(
+        request,
+        f"School '{school.name}' has been rejected.{teachers_msg}"
     )
-    unregistered_school.delete()
-    messages.success(request, f"School '{unregistered_school.name}' has been approved.")
     return redirect('pending_registrations')
 
 @user_passes_test(lambda u: u.is_superuser)
 def approve_teacher(request, teacher_id):
-    unregistered_teacher = get_object_or_404(UnregisteredTeacher, id=teacher_id)
+    from django.contrib.auth.models import Group
+
+    teacher = get_object_or_404(Teacher, id=teacher_id, status='PENDING')
+
     # Create a new user for the teacher
-    username = unregistered_teacher.email.split('@')[0]
+    username = teacher.email.split('@')[0]
+    # Generate a random password
+    from django.utils.crypto import get_random_string
+    random_password = get_random_string(length=12)
+
     user = User.objects.create_user(
         username=username,
-        email=unregistered_teacher.email,
-        password=User.objects.make_random_password()
+        email=teacher.email,
+        password=random_password,
+        is_staff=True  # Allow access to Django admin
     )
-    # Create a teacher profile
-    Teacher.objects.create(
-        user=user,
-        full_name=unregistered_teacher.full_name,
-        school=unregistered_teacher.school
-    )
-    unregistered_teacher.delete()
-    messages.success(request, f"Teacher '{unregistered_teacher.full_name}' has been approved.")
+
+    # Add user to Teachers group
+    teachers_group, created = Group.objects.get_or_create(name='Teachers')
+    user.groups.add(teachers_group)
+
+    # Link user to teacher and update status
+    teacher.user = user
+    teacher.status = 'APPROVED'
+    teacher.save()
+
+    # Send approval email with credentials to teacher
+    send_teacher_approval_email(teacher.email, username, random_password, teacher)
+
+    messages.success(request, f"Teacher '{teacher.full_name}' has been approved and credentials sent via email.")
     return redirect('pending_registrations')
+
+@user_passes_test(lambda u: u.is_superuser)
+def reject_teacher(request, teacher_id):
+    """
+    Reject a teacher registration.
+    Deletes all classrooms, students, and run statistics created by this teacher.
+    """
+    teacher = get_object_or_404(Teacher, id=teacher_id, status='PENDING')
+
+    # Delete all classrooms (cascades to students and run statistics)
+    classrooms_deleted = Classroom.objects.filter(teacher=teacher).count()
+    Classroom.objects.filter(teacher=teacher).delete()
+
+    # Set teacher status to REJECTED
+    teacher.status = 'REJECTED'
+    teacher.save()
+
+    messages.warning(
+        request,
+        f"Teacher '{teacher.full_name}' has been rejected. {classrooms_deleted} classroom(s) and all associated data were deleted."
+    )
+    return redirect('pending_registrations')
+
+from django.contrib.auth.decorators import login_required
+from django.db.models import Avg, Count, Sum
+import json
+
+@login_required
+@user_passes_test(lambda u: hasattr(u, 'teacher_profile'))
+def teacher_statistics_dashboard(request):
+    """
+    Dashboard for teachers to view student performance statistics with interactive charts.
+    """
+    teacher = request.user.teacher_profile
+
+    # Get all classrooms for this teacher
+    classrooms = Classroom.objects.filter(teacher=teacher).prefetch_related('students')
+
+    # Get all students for this teacher
+    students = Student.objects.filter(classroom__teacher=teacher)
+
+    # Prepare data for different charts
+    student_data = []
+
+    for student in students:
+        stats = RunStatistics.objects.filter(student=student).order_by('level')
+
+        if stats.exists():
+            student_info = {
+                'id': student.id,
+                'name': student.full_name,
+                'classroom': student.classroom.classroom_name,
+                'classroom_key': student.classroom.classroom_key,
+                'total_runs': stats.count(),
+                'avg_score': stats.aggregate(Avg('score'))['score__avg'] or 0,
+                'wins': stats.filter(player_won=True).count(),
+                'win_rate': (stats.filter(player_won=True).count() / stats.count() * 100) if stats.count() > 0 else 0,
+                'avg_time': stats.aggregate(Avg('time_elapsed'))['time_elapsed__avg'] or 0,
+                'levels': list(stats.values_list('level', flat=True)),
+                'scores': list(stats.values_list('score', flat=True)),
+                'times': list(stats.values_list('time_elapsed', flat=True)),
+                'correct_moves': list(stats.values_list('correct_moves', flat=True)),
+                'wrong_moves': list(stats.values_list('wrong_moves', flat=True)),
+                'places': list(stats.values_list('place', flat=True)),
+            }
+            student_data.append(student_info)
+
+    # Prepare classroom-level statistics
+    classroom_stats = []
+    for classroom in classrooms:
+        classroom_students = classroom.students.all()
+        all_runs = RunStatistics.objects.filter(student__in=classroom_students)
+
+        if all_runs.exists():
+            classroom_info = {
+                'name': classroom.classroom_name,
+                'key': classroom.classroom_key,
+                'student_count': classroom_students.count(),
+                'total_runs': all_runs.count(),
+                'avg_score': all_runs.aggregate(Avg('score'))['score__avg'] or 0,
+                'win_rate': (all_runs.filter(player_won=True).count() / all_runs.count() * 100) if all_runs.count() > 0 else 0,
+            }
+            classroom_stats.append(classroom_info)
+
+    context = {
+        'teacher': teacher,
+        'student_data': student_data,
+        'student_data_json': json.dumps(student_data),
+        'classroom_stats': classroom_stats,
+        'classroom_stats_json': json.dumps(classroom_stats),
+    }
+
+    return render(request, 'digitmileapi/teacher_statistics.html', context)
